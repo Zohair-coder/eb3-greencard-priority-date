@@ -6,7 +6,7 @@ import csv
 import logging
 import math
 import re
-import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,11 +29,11 @@ DOS_BULLETIN_URL = (
     "https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin/{folder_year}/"
     "visa-bulletin-for-{month}-{slug_year}.html"
 )
-MONTH_COUNT = 48
 START_PAGE_ID = 116
 MAX_PAGES_TO_CHECK = 400  # safeguard so we don't loop forever if structure changes
 REQUEST_TIMEOUT = 30
-REQUEST_DELAY_SECONDS = 0.3
+MAX_WORKERS = 6
+CONSECUTIVE_NOT_FOUND_LIMIT = 5
 TARGET_CAPTION = (
     "Final Action Dates for Employment-Based Adjustment of Status Applications"
 )
@@ -253,46 +253,71 @@ def extract_record(page_id: int) -> BulletinRecord:
 
 
 def collect_records() -> list[BulletinRecord]:
-    records: list[BulletinRecord] = []
+    records_by_month: dict[datetime, BulletinRecord] = {}
     page_id = START_PAGE_ID
     pages_checked = 0
+    consecutive_missing = 0
+    active_futures: dict = {}
+    stopping = False
 
-    while (
-        len(records) < MONTH_COUNT
-        and page_id > 0
-        and pages_checked < MAX_PAGES_TO_CHECK
-    ):
-        pages_checked += 1
-        try:
-            record = extract_record(page_id)
-        except FileNotFoundError:
-            LOGGER.info("Reached a missing page at id %s; stopping traversal.", page_id)
-            break
-        except ValueError as exc:
-            LOGGER.warning("Skipping page %s: %s", page_id, exc)
-        except Exception as exc:  # pragma: no cover - diagnostic
-            LOGGER.error("Failed to process page %s: %s", page_id, exc)
-        else:
-            records.append(record)
-            LOGGER.info(
-                "Collected %s/%s from page %s (%s)",
-                len(records),
-                MONTH_COUNT,
-                page_id,
-                record.month_label,
-            )
-        finally:
-            page_id -= 1
-            time.sleep(REQUEST_DELAY_SECONDS)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        while (page_id > 0 or active_futures) and pages_checked < MAX_PAGES_TO_CHECK:
+            while (
+                not stopping
+                and page_id > 0
+                and pages_checked < MAX_PAGES_TO_CHECK
+                and len(active_futures) < MAX_WORKERS
+            ):
+                future = executor.submit(extract_record, page_id)
+                active_futures[future] = page_id
+                page_id -= 1
+                pages_checked += 1
 
-    if len(records) < MONTH_COUNT:
+            if not active_futures:
+                break
+
+            done, _ = wait(active_futures.keys(), return_when=FIRST_COMPLETED)
+            for future in done:
+                pid = active_futures.pop(future)
+                try:
+                    record = future.result()
+                except FileNotFoundError:
+                    consecutive_missing += 1
+                    LOGGER.info(
+                        "USCIS page %s missing (%s consecutive).",
+                        pid,
+                        consecutive_missing,
+                    )
+                    if consecutive_missing >= CONSECUTIVE_NOT_FOUND_LIMIT:
+                        LOGGER.info(
+                            "Stopping after %s consecutive missing pages.",
+                            consecutive_missing,
+                        )
+                        stopping = True
+                        page_id = 0
+                except ValueError as exc:
+                    LOGGER.warning("Skipping page %s: %s", pid, exc)
+                    consecutive_missing = 0
+                except Exception as exc:  # pragma: no cover - diagnostic
+                    LOGGER.error("Failed to process page %s: %s", pid, exc)
+                    consecutive_missing = 0
+                else:
+                    consecutive_missing = 0
+                    if record.bulletin_month not in records_by_month:
+                        records_by_month[record.bulletin_month] = record
+                        LOGGER.info(
+                            "Collected %s records so far (page %s → %s)",
+                            len(records_by_month),
+                            pid,
+                            record.month_label,
+                        )
+
+    if not records_by_month:
         LOGGER.warning(
-            "Only collected %s records out of requested %s; consider increasing MAX_PAGES_TO_CHECK.",
-            len(records),
-            MONTH_COUNT,
+            "No records collected after checking %s pages.", pages_checked
         )
 
-    return records
+    return sorted(records_by_month.values(), key=lambda item: item.bulletin_month)
 
 
 def write_csv(records: list[BulletinRecord], destination: Path) -> None:
