@@ -314,9 +314,7 @@ def collect_records() -> list[BulletinRecord]:
                         )
 
     if not records_by_month:
-        LOGGER.warning(
-            "No records collected after checking %s pages.", pages_checked
-        )
+        LOGGER.warning("No records collected after checking %s pages.", pages_checked)
 
     return sorted(records_by_month.values(), key=lambda item: item.bulletin_month)
 
