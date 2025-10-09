@@ -36,3 +36,4 @@ The script will walk the archive from the newest bulletin backward, gathering ev
 -   If the final action date is `U` (unauthorized/unavailable), the backlog value is left blank in the CSV and plotted as `NaN`, so it is omitted from the chart line.
 -   The scraper discovers the latest USCIS "When to File" page automatically before walking backward through the archive, so you don't need to update a hard-coded start page when a new bulletin is published.
 -   It fetches several pages in parallel (default: 6 workers) while still stopping as soon as the archive returns a run of missing pages. You can reduce the concurrency by editing `MAX_WORKERS` in `src/scrape_backlog.py` if you prefer a slower crawl.
+-   A scheduled GitHub Actions workflow (`.github/workflows/monthly-scrape.yml`) runs on the first day of each month to refresh the artifacts automatically.
