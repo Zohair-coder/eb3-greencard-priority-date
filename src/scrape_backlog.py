@@ -15,7 +15,7 @@ from typing import Optional
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from dateutil import parser as date_parser
 from dateutil.relativedelta import relativedelta
 
@@ -30,7 +30,17 @@ DOS_BULLETIN_URL = (
     "https://travel.state.gov/content/travel/en/legal/visa-law0/visa-bulletin/{folder_year}/"
     "visa-bulletin-for-{month}-{slug_year}.html"
 )
-START_PAGE_ID = 116
+INDEX_URLS = [
+    (
+        "https://www.uscis.gov/green-card/green-card-processes-and-procedures/"
+        "visa-availability-priority-dates/adjustment-of-status-filing-charts-from-the-visa-bulletin"
+    ),
+    (
+        "https://www.uscis.gov/green-card/green-card-processes-and-procedures/"
+        "visa-availability-priority-dates"
+    ),
+]
+DEFAULT_START_PAGE_ID = 116
 MAX_PAGES_TO_CHECK = 400  # safeguard so we don't loop forever if structure changes
 REQUEST_TIMEOUT = 30
 MAX_WORKERS = 6
@@ -93,6 +103,36 @@ def build_dos_url(bulletin_month: datetime) -> str:
     )
 
 
+def discover_latest_start_page_id() -> int:
+    LOGGER.info("Discovering latest USCIS employment-based bulletin page ID")
+
+    for index_url in INDEX_URLS:
+        try:
+            response = requests.get(
+                index_url, timeout=REQUEST_TIMEOUT, headers={"User-Agent": USER_AGENT}
+            )
+            response.raise_for_status()
+        except Exception as exc:  # pragma: no cover - network resilience
+            LOGGER.debug("Failed to fetch %s: %s", index_url, exc)
+            continue
+
+        matches = {
+            int(match)
+            for match in re.findall(
+                r"employment-based-(\d+)", response.text, re.IGNORECASE
+            )
+        }
+        if matches:
+            latest_id = max(matches)
+            LOGGER.info("Discovered latest page id %s from %s", latest_id, index_url)
+            return latest_id
+        LOGGER.debug("No employment-based links discovered on %s", index_url)
+
+    raise ValueError(
+        "Could not find any employment-based bulletin links on the index pages."
+    )
+
+
 def fetch_dos_final_action(bulletin_month: datetime) -> tuple[str, str]:
     url = build_dos_url(bulletin_month)
     LOGGER.info(
@@ -134,7 +174,7 @@ def parse_bulletin_month(soup: BeautifulSoup) -> datetime:
     raise ValueError("Unable to determine bulletin month from page content.")
 
 
-def find_dos_employment_table(soup: BeautifulSoup) -> BeautifulSoup:
+def find_dos_employment_table(soup: BeautifulSoup) -> Tag:
     for table in soup.find_all("table"):
         header_row = table.find("tr")
         if header_row is None:
@@ -147,7 +187,7 @@ def find_dos_employment_table(soup: BeautifulSoup) -> BeautifulSoup:
     )
 
 
-def find_target_row(table: BeautifulSoup) -> BeautifulSoup:
+def find_target_row(table: Tag) -> Tag:
     for row in table.find_all("tr"):
         header_cell = row.find("th") or row.find("td")
         if not header_cell:
@@ -167,7 +207,7 @@ def find_target_row(table: BeautifulSoup) -> BeautifulSoup:
     raise ValueError(f"Could not find row labeled '{TARGET_ROW_LABEL}' in the table.")
 
 
-def get_chargeability_column_index(table: BeautifulSoup) -> int:
+def get_chargeability_column_index(table: Tag) -> int:
     header_section = table.find("thead")
     header_row = None
     if header_section:
@@ -193,7 +233,7 @@ def get_chargeability_column_index(table: BeautifulSoup) -> int:
     )
 
 
-def parse_final_action_date(row: BeautifulSoup, column_index: int) -> str:
+def parse_final_action_date(row: Tag, column_index: int) -> str:
     cells = row.find_all(["td", "th"])
     if len(cells) <= column_index + 1:
         raise ValueError("Target column index exceeds available cells in the row.")
@@ -255,7 +295,15 @@ def extract_record(page_id: int) -> BulletinRecord:
 
 def collect_records() -> list[BulletinRecord]:
     records_by_month: dict[datetime, BulletinRecord] = {}
-    page_id = START_PAGE_ID
+    try:
+        page_id = discover_latest_start_page_id()
+    except Exception as exc:  # pragma: no cover - network resilience
+        LOGGER.warning(
+            "Falling back to default start page id %s: %s",
+            DEFAULT_START_PAGE_ID,
+            exc,
+        )
+        page_id = DEFAULT_START_PAGE_ID
     pages_checked = 0
     consecutive_missing = 0
     active_futures: dict = {}
@@ -344,14 +392,23 @@ def generate_plot(records: list[BulletinRecord], destination: Path) -> None:
         raise ValueError("No data available to plot.")
 
     x_dates = [record.bulletin_month.replace(day=1) for record in records]
+    x_values = mdates.date2num(x_dates)
     y_values = [
         math.nan if record.backlog_months is None else record.backlog_months
         for record in records
     ]
 
     plt.figure(figsize=(14, 6))
-    plt.plot(x_dates, y_values, marker="o", linewidth=2, color="#2a6f97")
     ax = plt.gca()
+    ax.plot(
+        x_values,
+        y_values,
+        linestyle="-",
+        marker="o",
+        linewidth=2,
+        color="#2a6f97",
+    )
+    ax.xaxis_date()
     locator = mdates.AutoDateLocator(minticks=6, maxticks=14)
     formatter = mdates.ConciseDateFormatter(locator)
     ax.xaxis.set_major_locator(locator)
