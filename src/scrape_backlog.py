@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import requests
 from bs4 import BeautifulSoup
@@ -344,19 +345,24 @@ def generate_plot(records: list[BulletinRecord], destination: Path) -> None:
     if not records:
         raise ValueError("No data available to plot.")
 
-    x_labels = [record.month_label for record in records]
+    x_dates = [record.bulletin_month.replace(day=1) for record in records]
     y_values = [
         math.nan if record.backlog_months is None else record.backlog_months
         for record in records
     ]
 
     plt.figure(figsize=(14, 6))
-    plt.plot(x_labels, y_values, marker="o", linewidth=2, color="#2a6f97")
+    plt.plot(x_dates, y_values, marker="o", linewidth=2, color="#2a6f97")
+    ax = plt.gca()
+    locator = mdates.AutoDateLocator(minticks=6, maxticks=14)
+    formatter = mdates.ConciseDateFormatter(locator)
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(formatter)
+
     plt.title("EB-3 All Chargeability Backlog (Final Action Dates)")
     plt.xlabel("Visa Bulletin Month")
     plt.ylabel("Backlog (months)")
     plt.grid(True, alpha=0.3)
-    plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
     plt.savefig(destination, dpi=200)
     plt.close()
