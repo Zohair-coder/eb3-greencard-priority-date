@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EB-3 Green Card Backlog Chart</title>
-    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -12,75 +11,48 @@
             box-sizing: border-box;
         }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background-color: #f5f5f5;
             color: #333;
             line-height: 1.6;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1000px;
             margin: 0 auto;
             padding: 20px;
         }
         header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
         h1 {
-            font-size: 1.8rem;
+            font-size: 1.6rem;
             color: #2a6f97;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
         .subtitle {
             color: #666;
-            font-size: 1rem;
+            font-size: 0.95rem;
         }
-        #chart {
+        .chart-container {
             background: white;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             padding: 20px;
-            margin-bottom: 30px;
-        }
-        .info {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 20px;
-        }
-        .info h2 {
-            font-size: 1.2rem;
-            color: #2a6f97;
-            margin-bottom: 15px;
-        }
-        .info p {
-            margin-bottom: 10px;
-        }
-        .info ul {
-            margin-left: 20px;
-        }
-        .loading {
             text-align: center;
-            padding: 50px;
-            color: #666;
         }
-        .error {
-            text-align: center;
-            padding: 50px;
-            color: #d32f2f;
+        .chart-container img {
+            max-width: 100%;
+            height: auto;
         }
         footer {
             text-align: center;
-            margin-top: 30px;
+            margin-top: 20px;
             color: #666;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
         footer a {
             color: #2a6f97;
-        }
-        @media (max-width: 768px) {
-            h1 { font-size: 1.4rem; }
-            .container { padding: 10px; }
         }
     </style>
 </head>
@@ -88,119 +60,17 @@
     <div class="container">
         <header>
             <h1>EB-3 Green Card Backlog Over Time</h1>
-            <p class="subtitle">Employment-Based Third Preference - All Chargeability Areas Except Those Listed</p>
+            <p class="subtitle">Employment-Based Third Preference - All Chargeability Areas</p>
         </header>
 
-        <div id="chart">
-            <div class="loading">Loading chart data...</div>
-        </div>
-
-        <div class="info">
-            <h2>About This Chart</h2>
-            <p>This chart shows the backlog (in months) for EB-3 green card applications based on the Final Action Date from USCIS Visa Bulletins.</p>
-            <ul>
-                <li><strong>0 months</strong> = Current (no backlog)</li>
-                <li><strong>Higher values</strong> = Longer wait times</li>
-            </ul>
-            <p>Data is automatically updated monthly from official USCIS and Department of State visa bulletins.</p>
+        <div class="chart-container">
+            <img src="artifacts/eb3_backlog_months.png" alt="EB-3 Backlog Chart">
         </div>
 
         <footer>
-            <p>Data sourced from <a href="https://www.uscis.gov/" target="_blank">USCIS</a> and <a href="https://travel.state.gov/" target="_blank">Department of State</a> visa bulletins.</p>
+            <p>Data updated monthly from <a href="https://www.uscis.gov/" target="_blank">USCIS</a> visa bulletins.</p>
             <p><a href="https://github.com/Zohair-coder/eb3-greencard-priority-date" target="_blank">View source on GitHub</a></p>
         </footer>
     </div>
-
-    <script>
-        async function loadAndRenderChart() {
-            const chartDiv = document.getElementById('chart');
-
-            try {
-                const response = await fetch('artifacts/eb3_backlog_months.csv');
-                if (!response.ok) throw new Error('Failed to load data');
-
-                const csvText = await response.text();
-                const lines = csvText.trim().split('\n');
-                const headers = lines[0].split(',');
-
-                const months = [];
-                const backlogs = [];
-                const finalActions = [];
-
-                for (let i = 1; i < lines.length; i++) {
-                    const values = lines[i].split(',');
-                    const month = values[0];
-                    const finalAction = values[1];
-                    const backlog = parseFloat(values[2]);
-
-                    if (!isNaN(backlog)) {
-                        months.push(month);
-                        backlogs.push(backlog);
-                        finalActions.push(finalAction);
-                    }
-                }
-
-                const trace = {
-                    x: months,
-                    y: backlogs,
-                    type: 'scatter',
-                    mode: 'lines+markers',
-                    name: 'Backlog (months)',
-                    line: {
-                        color: '#2a6f97',
-                        width: 2
-                    },
-                    marker: {
-                        size: 6,
-                        color: '#2a6f97'
-                    },
-                    hovertemplate: '<b>%{x}</b><br>' +
-                        'Backlog: %{y:.1f} months<br>' +
-                        '<extra></extra>'
-                };
-
-                const layout = {
-                    xaxis: {
-                        title: 'Bulletin Month',
-                        tickangle: -45,
-                        showgrid: true,
-                        gridcolor: '#e0e0e0'
-                    },
-                    yaxis: {
-                        title: 'Backlog (Months)',
-                        showgrid: true,
-                        gridcolor: '#e0e0e0',
-                        zeroline: true,
-                        zerolinecolor: '#999'
-                    },
-                    margin: {
-                        l: 60,
-                        r: 30,
-                        t: 30,
-                        b: 100
-                    },
-                    hovermode: 'closest',
-                    plot_bgcolor: 'white',
-                    paper_bgcolor: 'white'
-                };
-
-                const config = {
-                    responsive: true,
-                    displayModeBar: true,
-                    modeBarButtonsToRemove: ['lasso2d', 'select2d'],
-                    displaylogo: false
-                };
-
-                chartDiv.innerHTML = '';
-                Plotly.newPlot(chartDiv, [trace], layout, config);
-
-            } catch (error) {
-                chartDiv.innerHTML = `<div class="error">Error loading chart data: ${error.message}</div>`;
-                console.error('Chart loading error:', error);
-            }
-        }
-
-        loadAndRenderChart();
-    </script>
 </body>
 </html>
