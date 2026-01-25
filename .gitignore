@@ -21,5 +21,3 @@ dist/
 # Local IDE/project settings
 .vscode/
 .idea/
-
-index.html
